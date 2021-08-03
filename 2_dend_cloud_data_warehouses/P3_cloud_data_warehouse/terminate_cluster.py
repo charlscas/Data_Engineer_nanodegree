@@ -85,28 +85,6 @@ def createClients(region_name, key, secret):
     except Exception as e:
         print(e)
 
-def createRole(iam,role_name):
-    try:
-        print("3. Role")
-        print("3.1 Creating a new IAM Role:", role_name) 
-        dwhRole = iam.create_role(
-            Path='/',
-            RoleName=role_name,
-            Description = "Allows Redshift clusters to call AWS services on your behalf.",
-            AssumeRolePolicyDocument=json.dumps(
-                {'Statement': [{'Action': 'sts:AssumeRole',
-                'Effect': 'Allow',
-                'Principal': {'Service': 'redshift.amazonaws.com'}}],
-                'Version': '2012-10-17'})
-        )
-    except ClientError as e:
-        if "EntityAlreadyExists" in e.response['Error']['Code']:
-            print("- Role already exists")
-        else:
-            print(e)       
-    except Exception as e:
-        print(e)
-
 def deleteRole(iam, role_name):
     try:
         print("Deleting role")
@@ -120,23 +98,6 @@ def deleteRole(iam, role_name):
         print(e)
 
     
-def attachPolicyToRole(iam, config):
-    try:
-        print("3.2 Attaching Policy")
-        iam.attach_role_policy(RoleName=config['DWH']['DWH_IAM_ROLE_NAME'],
-                            PolicyArn="arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
-                            )['ResponseMetadata']['HTTPStatusCode']
-
-        arn = iam.get_role(RoleName=config['DWH']['DWH_IAM_ROLE_NAME'])['Role']['Arn']
-        print("3.3 Write the IAM role ARN:", arn)
-        config['IAM_ROLE']['ARN'] = arn
-        with open(PATH, 'w') as conf:
-            config.write(conf)
-        print('-------------------------------------')
-
-    except Exception as e:
-        print(e)
-
 def detachPolicyToRole(iam, config):
     try:
         print("Detaching Policy")
@@ -152,30 +113,6 @@ def detachPolicyToRole(iam, config):
             print("- Role is already deleted")
         else:
             print(e)        
-    except Exception as e:
-        print(e)
-
-def createRedshiftCluster(redshift, config):
-    try:
-        print('4. Redshift')
-        print('- Creating Redshift cluster:')
-        response = redshift.create_cluster(        
-            ClusterType=    config['DWH']['DWH_CLUSTER_TYPE'],
-            NodeType=       config['DWH']['DWH_NODE_TYPE'],
-            NumberOfNodes=  int(config['DWH']['DWH_NUM_NODES']),
-
-            DBName=config['DWH']['DWH_DB'],
-            ClusterIdentifier=config['DWH']['DWH_CLUSTER_IDENTIFIER'],
-            MasterUsername=config['DWH']['DWH_DB_USER'],
-            MasterUserPassword=config['DWH']['DWH_DB_PASSWORD'],
-            
-            IamRoles=[config['IAM_ROLE']['ARN']]  
-        )
-    except ClientError as e:
-        if "ClusterAlreadyExists" in e.response['Error']['Code']:
-            print("Redshift cluster '",config['DWH']['DWH_CLUSTER_IDENTIFIER'],"' already exists", sep='')
-        else:
-            print(e)
     except Exception as e:
         print(e)
 
@@ -299,24 +236,11 @@ def main():
         config['AWS']['SECRET']
     )
 
-    if 'DWH' in empty_sections:
-        print('WARNING: There are empty values in the [DWH] section')
-    createRole(iam, config['DWH']['DWH_IAM_ROLE_NAME'])
-    time.sleep(1)
-    attachPolicyToRole(iam, config)
-
-    createRedshiftCluster(redshift, config)
-    time.sleep(5)
-    describeRedshiftCluster(redshift,config)
-    waitUntilRedshiftClusterIsAvailable(redshift,config)
-
-    openIncomingTCPPort(ec2,redshift,config)
-
-    # deleteRedshiftCluster(redshift,config)
-    # time.sleep(2)
-    # detachPolicyToRole(iam, config)
-    # deleteRole(iam, config['DWH']['DWH_IAM_ROLE_NAME'])
-    # isRedshiftClusterDeleted(redshift,config)
+    deleteRedshiftCluster(redshift,config)
+    time.sleep(2)
+    detachPolicyToRole(iam, config)
+    deleteRole(iam, config['DWH']['DWH_IAM_ROLE_NAME'])
+    isRedshiftClusterDeleted(redshift,config)
 
 
 if __name__ == "__main__":
