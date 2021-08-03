@@ -67,7 +67,9 @@ def main():
     config.optionxform=str
     config.read('dwh.cfg')
 
-    conn = psycopg2.connect("host={} dbname={} user={} password={} port={}".format(*getDBCredentials(config)))
+    conn = psycopg2.connect(
+        "host={} dbname={} user={} password={} port={}".format(*getDBCredentials(config))
+        )
     cur = conn.cursor()
 
     drop_tables(cur, conn)
