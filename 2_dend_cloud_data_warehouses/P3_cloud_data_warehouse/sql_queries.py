@@ -23,20 +23,20 @@ CREATE TABLE IF NOT EXISTS staging_events (
     auth            VARCHAR,
     firstName       VARCHAR,
     gender          VARCHAR,
-    itemInSession   INT,
+    itemInSession   INTEGER,
     lastName        VARCHAR,
     length          DECIMAL,
     level           VARCHAR,
     location        VARCHAR,
     method          VARCHAR,
     page            VARCHAR,
-    registration    INT,
-    sessionId       INT,
+    registration    BIGINT,
+    sessionId       INTEGER,
     song            VARCHAR,
-    status          INT,
-    ts              INT,
+    status          INTEGER,
+    ts              TIMESTAMP,
     userAgent       VARCHAR,
-    userId          INT
+    userId          VARCHAR
 );
 """)
 
@@ -59,10 +59,10 @@ songplay_table_create = ("""
 CREATE TABLE IF NOT EXISTS songplays (
     songplay_id     INT         IDENTITY(0,1)    PRIMARY KEY, 
     start_time      TIMESTAMP   NOT NULL         REFERENCES time(start_time), 
-    user_id         INT         NOT NULL, 
+    user_id         VARCHAR     NOT NULL, 
     level           VARCHAR, 
-    song_id         VARCHAR     NOT NULL, 
-    artist_id       VARCHAR     NOT NULL, 
+    song_id         VARCHAR, 
+    artist_id       VARCHAR, 
     session_id      INT, 
     location        VARCHAR, 
     user_agent      VARCHAR
@@ -115,39 +115,123 @@ CREATE TABLE IF NOT EXISTS time (
 
 staging_events_copy = ("""
     COPY staging_events
-    FROM 's3://udacity-dend/log_data'
-    CREDENTIALS 'aws_iam_role={}'
+    FROM {log_data_bucket}
+    CREDENTIALS 'aws_iam_role={arn}'
+    EMPTYASNULL
+    BLANKASNULL
     COMPUPDATE OFF
     REGION 'us-west-2'
     TIMEFORMAT AS 'epochmillisecs'
-    TRUNCATECOLUMNS blankasnull emptyasnull
-    JSON 's3://udacity-dend/log_json_path.json'
-""").format(config['IAM_ROLE']['ARN'])
+    JSON {log_data_path}
+""").format(
+        log_data_bucket=config['S3']['LOG_DATA'],
+        arn=config['IAM_ROLE']['ARN'],
+        log_data_path=config['S3']['LOG_JSONPATH']
+        )
 
 staging_songs_copy = ("""
     COPY staging_songs
     FROM 's3://udacity-dend/song_data/A/A/A'
     CREDENTIALS 'aws_iam_role={}'
+    EMPTYASNULL
+    BLANKASNULL
+    REGION 'us-west-2'
     FORMAT AS JSON 'auto'
     COMPUPDATE OFF
-    REGION 'us-west-2'
 """).format(config['IAM_ROLE']['ARN'])
 
 # FINAL TABLES
 
 songplay_table_insert = ("""
+    INSERT INTO songplays (
+        start_time, 
+        user_id, 
+        level, 
+        song_id, 
+        artist_id, 
+        session_id, 
+        location, 
+        user_agent
+    )
+    SELECT
+        e.ts,
+        e.userId,
+        e.level,
+        s.song_id,
+        s.artist_id,
+        e.sessionId,
+        e.location,
+        e.userAgent
+    FROM staging_events AS e
+    LEFT JOIN staging_songs AS s
+        ON (e.artist = s.artist_name AND e.song = s.title)
+    WHERE e.page = 'NextSong' AND s.title IS NOT NULL
+
 """)
 
 user_table_insert = ("""
+    INSERT INTO users (user_id, first_name, last_name, gender, level)
+    SELECT DISTINCT
+        e.userId,
+        e.firstName,
+        e.lastName,
+        e.gender,
+        e.level
+    FROM staging_events AS e
+    WHERE e.userId IS NOT NULL
+    ON CONFLICT (user_id)
+    DO NOTHING;
 """)
+        # UPDATE 
+        # SET first_name = EXCLUDED.first_name, 
+        #     last_name  = EXCLUDED.last_name, 
+        #     gender     = EXCLUDED.gender,
+        #     level      = EXCLUDED.level
 
 song_table_insert = ("""
+    INSERT INTO songs (song_id, title, artist_id, year, duration)
+    SELECT DISTINCT
+        s.song_id,
+        s.title,
+        s.artist_id,
+        s.year,
+        s.duration
+    FROM staging_songs AS s
+    WHERE s.song_id IS NOT NULL AND s.artist_id IS NOT NULL
 """)
 
 artist_table_insert = ("""
+    INSERT INTO artists (artist_id, name, location, latitude, longitude)
+    SELECT DISTINCT
+        s.artist_id,
+        s.artist_name,
+        s.artist_location,
+        s.artist_latitude,
+        s.artist_longitude
+    FROM staging_songs AS s
+    WHERE s.artist_id IS NOT NULL
 """)
 
 time_table_insert = ("""
+    INSERT INTO time (start_time, hour, day, week, month, year, weekday)
+    SELECT
+        t.start_time,
+        EXTRACT(HOUR FROM t.start_time),
+        EXTRACT(DAY FROM t.start_time),
+        EXTRACT(WEEK FROM t.start_time),
+        EXTRACT(MONTH FROM t.start_time),
+        EXTRACT(YEAR FROM t.start_time),
+        CASE 
+            WHEN EXTRACT(DOW FROM t.start_time) == 0 THEN 'Sunday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 1 THEN 'Monday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 2 THEN 'Tuesday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 3 THEN 'Wednesday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 4 THEN 'Thursday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 5 THEN 'Friday'
+            WHEN EXTRACT(DOW FROM t.start_time) == 6 THEN 'Saturday'
+            ELSE 'Unknown'
+        END,
+    
 """)
 
 # QUERY LISTS
