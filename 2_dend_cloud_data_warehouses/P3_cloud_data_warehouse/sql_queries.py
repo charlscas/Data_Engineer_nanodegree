@@ -118,7 +118,7 @@ staging_events_copy = ("""
     FROM {log_data_bucket}
     CREDENTIALS 'aws_iam_role={arn}'
     EMPTYASNULL
-    BLANKASNULL
+    BLANKSASNULL
     COMPUPDATE OFF
     REGION 'us-west-2'
     TIMEFORMAT AS 'epochmillisecs'
@@ -134,7 +134,7 @@ staging_songs_copy = ("""
     FROM 's3://udacity-dend/song_data/A/A/A'
     CREDENTIALS 'aws_iam_role={}'
     EMPTYASNULL
-    BLANKASNULL
+    BLANKSASNULL
     REGION 'us-west-2'
     FORMAT AS JSON 'auto'
     COMPUPDATE OFF
@@ -177,16 +177,10 @@ user_table_insert = ("""
         e.lastName,
         e.gender,
         e.level
-    FROM staging_events AS e
+    FROM staging_events e
     WHERE e.userId IS NOT NULL
-    ON CONFLICT (user_id)
-    DO NOTHING;
+    AND e.userId NOT IN (SELECT DISTINCT user_id FROM users)
 """)
-        # UPDATE 
-        # SET first_name = EXCLUDED.first_name, 
-        #     last_name  = EXCLUDED.last_name, 
-        #     gender     = EXCLUDED.gender,
-        #     level      = EXCLUDED.level
 
 song_table_insert = ("""
     INSERT INTO songs (song_id, title, artist_id, year, duration)
@@ -214,24 +208,71 @@ artist_table_insert = ("""
 
 time_table_insert = ("""
     INSERT INTO time (start_time, hour, day, week, month, year, weekday)
-    SELECT
-        t.start_time,
-        EXTRACT(HOUR FROM t.start_time),
-        EXTRACT(DAY FROM t.start_time),
-        EXTRACT(WEEK FROM t.start_time),
-        EXTRACT(MONTH FROM t.start_time),
-        EXTRACT(YEAR FROM t.start_time),
+    SELECT DISTINCT
+        e.ts,
+        EXTRACT(HOUR FROM e.ts),
+        EXTRACT(DAY FROM e.ts),
+        EXTRACT(WEEK FROM e.ts),
+        EXTRACT(MONTH FROM e.ts),
+        EXTRACT(YEAR FROM e.ts),
         CASE 
-            WHEN EXTRACT(DOW FROM t.start_time) == 0 THEN 'Sunday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 1 THEN 'Monday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 2 THEN 'Tuesday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 3 THEN 'Wednesday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 4 THEN 'Thursday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 5 THEN 'Friday'
-            WHEN EXTRACT(DOW FROM t.start_time) == 6 THEN 'Saturday'
+            WHEN EXTRACT(DOW FROM e.ts) = 0 THEN 'Sunday'
+            WHEN EXTRACT(DOW FROM e.ts) = 1 THEN 'Monday'
+            WHEN EXTRACT(DOW FROM e.ts) = 2 THEN 'Tuesday'
+            WHEN EXTRACT(DOW FROM e.ts) = 3 THEN 'Wednesday'
+            WHEN EXTRACT(DOW FROM e.ts) = 4 THEN 'Thursday'
+            WHEN EXTRACT(DOW FROM e.ts) = 5 THEN 'Friday'
+            WHEN EXTRACT(DOW FROM e.ts) = 6 THEN 'Saturday'
             ELSE 'Unknown'
-        END,
-    
+        END
+    FROM staging_events AS e
+    WHERE e.ts IS NOT NULL    
+""")
+
+# INSERT INCOMPLETE VALUES
+artist_table_insert_incomplete = ("""
+    INSERT INTO artists (artist_id, name)
+    SELECT DISTINCT
+        MD5(e.artist),
+        e.artist
+    FROM staging_events AS e
+    WHERE e.artist IS NOT NULL
+""")
+
+song_table_insert_incomplete = ("""
+    INSERT INTO songs (song_id, title, artist_id)
+    SELECT DISTINCT
+        MD5(CONCAT(e.song,e.artist)),
+        e.song,
+        MD5(e.artist)
+    FROM staging_events AS e
+    WHERE e.song IS NOT NULL AND e.artist IS NOT NULL
+""")
+
+songplay_table_insert_incomplete = ("""
+    INSERT INTO songplays (
+        start_time, 
+        user_id, 
+        level, 
+        song_id, 
+        artist_id, 
+        session_id, 
+        location, 
+        user_agent
+    )
+    SELECT
+        e.ts,
+        e.userId,
+        e.level,
+        MD5(CONCAT(e.song,e.artist)),
+        MD5(e.artist),
+        e.sessionId,
+        e.location,
+        e.userAgent
+    FROM staging_events AS e
+    WHERE e.page = 'NextSong' 
+        AND e.song IS NOT NULL
+        AND e.artist IS NOT NULL
 """)
 
 # QUERY LISTS
@@ -263,4 +304,9 @@ insert_table_queries = [
     song_table_insert, 
     artist_table_insert, 
     time_table_insert
+]
+insert_incomplete_table_queries = [
+    artist_table_insert_incomplete,
+    song_table_insert_incomplete,
+    songplay_table_insert_incomplete
 ]

@@ -1,6 +1,6 @@
 import configparser
 import psycopg2
-from sql_queries import copy_table_queries, insert_table_queries
+from sql_queries import copy_table_queries, insert_table_queries, insert_incomplete_table_queries
 
 
 def load_staging_tables(cur, conn):
@@ -14,7 +14,6 @@ def load_staging_tables(cur, conn):
     """
     print("1. Loading data from S3 to Redshift staging tables.")
     for query in copy_table_queries:
-        print(query)
         cur.execute(query)
         conn.commit()
         query_words = query.split()
@@ -31,11 +30,31 @@ def insert_tables(cur, conn):
     * con the connection to the Postgres DB 
     """
     print("2. Transforming from staging to final.")
-    for query in insert_table_queries[:3]:
+    for query in insert_table_queries:
         cur.execute(query)
         conn.commit()
         query_words = query.split()
         print("- Table loaded: `", query_words[2], "`", sep='')
+
+def insert_incomplete_tables(cur, conn, is_processed):
+    """
+    Loads incomplete data from event staging table to final tables.
+    Target staging tables: songplay, songs and artists
+
+    INPUTS:
+    * cur the cursor variable
+    * con the connection to the Postgres DB 
+    * is_proecessed boolean - Allows processing incomplete data
+    """
+    if not is_processed:
+        print("3. Incomplete data is not processed.")
+        return
+    print("3. Adding incomplete data to final tables.")
+    for query in insert_incomplete_table_queries:
+        cur.execute(query)
+        conn.commit()
+        query_words = query.split()
+        print("- Incomplete data inserted into: `", query_words[2], "`", sep='')
 
 def getDBCredentials(config):
     """
@@ -72,6 +91,7 @@ def main():
     
     load_staging_tables(cur, conn)
     insert_tables(cur, conn)
+    insert_incomplete_tables(cur, conn, (config['DWH']['DWH_PROCESS_INCOMPLETE_DATA']))
 
     conn.close()
 
