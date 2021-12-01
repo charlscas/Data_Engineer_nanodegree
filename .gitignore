@@ -1,5 +1,6 @@
 # Global Files
 dwh.cfg
+dl.cfg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
